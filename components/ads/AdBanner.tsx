@@ -2,7 +2,9 @@
 
 import React from 'react';
 import { adsConfig, AdSlotConfig } from '../../configuration/ads.config';
-import { ExternalLink, Sparkles, Shield, Zap, HardDrive } from 'lucide-react';
+import { AdsterraFrame } from './AdsterraFrame';
+import { AdErrorBoundary } from './AdErrorBoundary';
+import { Zap, Shield, HardDrive } from 'lucide-react';
 
 interface AdBannerProps {
   slot: keyof typeof adsConfig.slots;
@@ -15,8 +17,71 @@ export function AdBanner({ slot, className = '' }: AdBannerProps) {
   const slotConfig: AdSlotConfig = adsConfig.slots[slot];
   if (!slotConfig || !slotConfig.enabled) return null;
 
-  // Real Google AdSense (Auto-adjusts to ANY ad size: 728x90, 300x250, 320x50, 970x250, etc.)
-  if (adsConfig.adsenseClientId && slotConfig.type === 'adsense' && slotConfig.adsenseSlot) {
+  return (
+    <AdErrorBoundary>
+      <AdBannerInner slot={slot} slotConfig={slotConfig} className={className} />
+    </AdErrorBoundary>
+  );
+}
+
+function AdBannerInner({
+  slot,
+  slotConfig,
+  className = '',
+}: {
+  slot: keyof typeof adsConfig.slots;
+  slotConfig: AdSlotConfig;
+  className?: string;
+}) {
+  // 1. Live Official Adsterra Integration
+  if (slotConfig.type === 'adsterra' && adsConfig.adsterra?.enabled) {
+    if (slot === 'topLeaderboard') {
+      return (
+        <div className={`w-full max-w-full text-center my-3 sm:my-4 flex flex-col items-center justify-center transition-all ${className}`}>
+          <div className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400 mb-1 select-none">
+            Advertisement • Sponsored
+          </div>
+          {/* Desktop 728x90 */}
+          <div className="hidden sm:flex justify-center w-full">
+            <AdsterraFrame
+              adKey={adsConfig.adsterra.banner728x90.key}
+              scriptUrl={adsConfig.adsterra.banner728x90.scriptUrl}
+              width={728}
+              height={90}
+            />
+          </div>
+          {/* Mobile 320x50 */}
+          <div className="flex sm:hidden justify-center w-full">
+            <AdsterraFrame
+              adKey={adsConfig.adsterra.banner320x50.key}
+              scriptUrl={adsConfig.adsterra.banner320x50.scriptUrl}
+              width={320}
+              height={50}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (slot === 'afterResult' || slot === 'inFeed') {
+      return (
+        <div className={`w-full max-w-full text-center my-4 flex flex-col items-center justify-center transition-all ${className}`}>
+          <div className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400 mb-1 select-none">
+            Sponsored Content
+          </div>
+          <AdsterraFrame
+            adKey={adsConfig.adsterra.banner300x250.key}
+            scriptUrl={adsConfig.adsterra.banner300x250.scriptUrl}
+            width={300}
+            height={250}
+          />
+        </div>
+      );
+    }
+  }
+
+  // 2. Real Google AdSense
+  if (adsConfig.adsenseClientId && slotConfig.type === 'adsense') {
     return (
       <div className={`w-full max-w-full text-center overflow-hidden my-3 sm:my-4 flex flex-col items-center justify-center transition-all ${className}`}>
         <div className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400 mb-1 select-none">
@@ -27,7 +92,7 @@ export function AdBanner({ slot, className = '' }: AdBannerProps) {
             className="adsbygoogle"
             style={{ display: 'block', textAlign: 'center', maxWidth: '100%' }}
             data-ad-client={adsConfig.adsenseClientId}
-            data-ad-slot={slotConfig.adsenseSlot}
+            {...(slotConfig.adsenseSlot ? { 'data-ad-slot': slotConfig.adsenseSlot } : {})}
             data-ad-format={slotConfig.format || 'auto'}
             data-full-width-responsive="true"
           />
@@ -36,7 +101,7 @@ export function AdBanner({ slot, className = '' }: AdBannerProps) {
     );
   }
 
-  // Custom Ad Network Script or HTML (e.g. Adsterra, PropellerAds, Monetag)
+  // 3. Custom Ad Network Script or HTML
   if (slotConfig.type === 'custom' && slotConfig.customHtml) {
     return (
       <div className={`w-full max-w-full text-center overflow-hidden my-3 sm:my-4 flex flex-col items-center justify-center transition-all ${className}`}>
@@ -48,26 +113,20 @@ export function AdBanner({ slot, className = '' }: AdBannerProps) {
     );
   }
 
-  // Realistic Responsive High-CTR Sponsor Banner (Dynamically adjusts to screen & content size)
+  // 4. Clean Responsive Fallback Banner
   const isLeaderboard = slot === 'topLeaderboard';
   const isAfterResult = slot === 'afterResult';
 
   return (
     <div className={`w-full max-w-full my-3 sm:my-4 select-none transition-all ${className}`}>
-      {/* Label Strip */}
       <div className="flex items-center justify-between px-2 mb-1 text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
         <span className="flex items-center gap-1">
           <span>Advertisement • Sponsored</span>
         </span>
-        <span className="hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">
-          AdChoices ⓘ
-        </span>
       </div>
 
-      {/* Responsive Auto-Adjusting Banner Box */}
       <div className="relative w-full max-w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md transition-all p-3 sm:p-4">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
-          
           <div className="flex items-center gap-2.5 sm:gap-3.5 text-center sm:text-left min-w-0 w-full sm:w-auto">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-orange-50 dark:bg-orange-950/40 text-brand-primary border border-orange-200/60 dark:border-orange-800/40 flex items-center justify-center font-extrabold shadow-xs flex-shrink-0 mx-auto sm:mx-0">
               {isLeaderboard ? (
@@ -101,17 +160,6 @@ export function AdBanner({ slot, className = '' }: AdBannerProps) {
               </p>
             </div>
           </div>
-
-          <a
-            href="https://google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full sm:w-auto px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-brand-primary hover:bg-brand-primary-hover text-white font-extrabold text-xs sm:text-sm shadow-md transition-all whitespace-nowrap flex items-center justify-center gap-1.5 flex-shrink-0 hover:scale-[1.02]"
-          >
-            <span>{isLeaderboard ? 'Try Free' : isAfterResult ? 'Get Protection' : 'Claim 100GB'}</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-
         </div>
       </div>
     </div>

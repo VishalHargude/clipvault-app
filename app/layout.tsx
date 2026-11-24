@@ -40,6 +40,20 @@ export default function RootLayout({
             crossOrigin="anonymous"
           />
         )}
+        {adsConfig.globalEnabled && adsConfig.adsterra?.enabled && (
+          <>
+            {/* Adsterra Social Bar Notification Ad */}
+            <script
+              data-cfasync="false"
+              src={adsConfig.adsterra.socialBarUrl}
+            />
+            {/* Adsterra High-CPM Popunder Ad */}
+            <script
+              data-cfasync="false"
+              src={adsConfig.adsterra.popunderUrl}
+            />
+          </>
+        )}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(webAppSchema) }}

@@ -180,40 +180,76 @@ export class UniversalEngine {
     let directV720 = '';
     let directAudio = '';
 
-    // Use ytdlpBridge for exact real duration, title, and streams
+    // 1. Pure Node.js @distube/ytdl-core (100% works on Vercel Serverless & Local)
     try {
-      const { execFile } = await import('child_process');
-      const path = await import('path');
-      const pythonPath = 'C:\\Users\\Vishal Hargude\\AppData\\Local\\Python\\bin\\python.exe';
-      const bridgePath = path.join(process.cwd(), 'modules', 'platforms', 'ytdlpBridge.py');
-
-      const pyData: any = await new Promise((resolve) => {
-        execFile(pythonPath, [bridgePath, url], { timeout: 8000 }, (err, stdout) => {
-          if (!err && stdout) {
-            try {
-              resolve(JSON.parse(stdout));
-            } catch {
-              resolve(null);
-            }
-          } else {
-            resolve(null);
-          }
-        });
-      });
-
-      if (pyData && pyData.success) {
-        title = pyData.title || title;
-        if (pyData.channel) {
-          authorName = pyData.channel;
+      const { Ytdl } = await import('@distube/ytdl-core');
+      const ytdl = new Ytdl();
+      const info = await ytdl.getInfo(url);
+      if (info && info.videoDetails) {
+        title = info.videoDetails.title || title;
+        authorName = info.videoDetails.author?.name || authorName;
+        if (info.videoDetails.thumbnails && info.videoDetails.thumbnails.length > 0) {
+          const sorted = [...info.videoDetails.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0));
+          thumbnail = sorted[0].url || thumbnail;
         }
-        thumbnail = pyData.thumbnail || thumbnail;
-        durationStr = pyData.durationStr || '';
-        directV1080 = pyData.v1080 || '';
-        directV720 = pyData.v720 || '';
-        directAudio = pyData.audio || '';
+        if (info.videoDetails.lengthSeconds) {
+          const s = typeof info.videoDetails.lengthSeconds === 'number' 
+            ? info.videoDetails.lengthSeconds 
+            : parseInt(String(info.videoDetails.lengthSeconds), 10);
+          const mins = Math.floor(s / 60);
+          const secs = s % 60;
+          durationStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+
+        const f1080 = info.formats.find(f => f.itag === 137 || (f.qualityLabel?.includes('1080') && f.hasVideo));
+        const f720 = info.formats.find(f => f.itag === 136 || f.itag === 22 || (f.qualityLabel?.includes('720') && f.hasVideo));
+        const fAudio = info.formats.find(f => f.itag === 140 || (!f.hasVideo && f.hasAudio));
+
+        if (f1080 && f1080.url) directV1080 = f1080.url;
+        if (f720 && f720.url) directV720 = f720.url;
+        if (fAudio && fAudio.url) directAudio = fAudio.url;
       }
-    } catch (err: any) {
-      console.warn('ytdlpBridge error:', err.message);
+    } catch (ytdlErr: any) {
+      console.warn('@distube/ytdl-core note:', ytdlErr.message);
+    }
+
+    // 2. Use ytdlpBridge for local environment if python is available
+    if (!directV720) {
+      try {
+        const fs = await import('fs');
+        const pythonPath = 'C:\\Users\\Vishal Hargude\\AppData\\Local\\Python\\bin\\python.exe';
+        if (fs.existsSync(pythonPath)) {
+          const { execFile } = await import('child_process');
+          const path = await import('path');
+          const bridgePath = path.join(process.cwd(), 'modules', 'platforms', 'ytdlpBridge.py');
+
+          const pyData: any = await new Promise((resolve) => {
+            execFile(pythonPath, [bridgePath, url], { timeout: 8000 }, (err, stdout) => {
+              if (!err && stdout) {
+                try {
+                  resolve(JSON.parse(stdout));
+                } catch {
+                  resolve(null);
+                }
+              } else {
+                resolve(null);
+              }
+            });
+          });
+
+          if (pyData && pyData.success) {
+            title = pyData.title || title;
+            if (pyData.channel) authorName = pyData.channel;
+            thumbnail = pyData.thumbnail || thumbnail;
+            durationStr = pyData.durationStr || durationStr;
+            directV1080 = pyData.v1080 || directV1080;
+            directV720 = pyData.v720 || directV720;
+            directAudio = pyData.audio || directAudio;
+          }
+        }
+      } catch (err: any) {
+        console.warn('ytdlpBridge error:', err.message);
+      }
     }
 
     if (!authorName || authorName === 'YouTube Creator') {
@@ -514,9 +550,32 @@ export class UniversalEngine {
   private static async resolveTikTok(url: string): Promise<UniversalResolveResult> {
     const parts = new URL(url).pathname.split('/').filter(Boolean);
     const videoId = parts[parts.length - 1] || 'tiktok_video';
-    const username = parts.find(p => p.startsWith('@')) || '@tiktok_creator';
+    let username = parts.find(p => p.startsWith('@')) || '@tiktok_creator';
+    let title = `TikTok Video by ${username}`;
+    let directVideoUrl = '';
+    let directAudioUrl = '';
+    let directThumbnail = '';
 
-    const previewVideoUrl = `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(url)}&filename=tiktok_preview_${videoId}.mp4`;
+    try {
+      const { alldl } = await import('rahad-all-downloader-v2');
+      const dlRes: any = await Promise.race([
+        alldl(url),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+      ]);
+      if (dlRes && dlRes.data) {
+        if (dlRes.data.title) title = dlRes.data.title;
+        if (dlRes.data.download?.no_watermark || dlRes.data.videoUrl) {
+          directVideoUrl = dlRes.data.download?.no_watermark || dlRes.data.videoUrl;
+        }
+        if (dlRes.data.download?.music) directAudioUrl = dlRes.data.download.music;
+        if (dlRes.data.thumbnail) directThumbnail = dlRes.data.thumbnail;
+      }
+    } catch (ttErr: any) {
+      console.warn('TikTok extraction note:', ttErr.message);
+    }
+
+    const targetVideoUrl = directVideoUrl || url;
+    const previewVideoUrl = `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(targetVideoUrl)}&filename=tiktok_preview_${videoId}.mp4&inline=true`;
 
     const options: UniversalMediaOption[] = [
       {
@@ -525,8 +584,8 @@ export class UniversalEngine {
         label: 'Download Video (No Watermark - Full HD)',
         quality: '1080p HD (Clean)',
         format: 'MP4',
-        downloadUrl: `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(url)}&filename=tiktok_nowatermark_${videoId}_1080p.mp4`,
-        sizeEstimate: '~14.4 MB',
+        downloadUrl: `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(targetVideoUrl)}&filename=tiktok_nowatermark_${videoId}_1080p.mp4`,
+        sizeEstimate: directVideoUrl ? 'Full HD' : '~14.4 MB',
       },
       {
         id: 'tt_hd',
@@ -534,7 +593,7 @@ export class UniversalEngine {
         label: 'Download Video (Original MP4 720p)',
         quality: 'Original 720p HD',
         format: 'MP4',
-        downloadUrl: `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(url)}&filename=tiktok_original_${videoId}_720p.mp4`,
+        downloadUrl: `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(targetVideoUrl)}&filename=tiktok_original_${videoId}_720p.mp4`,
         sizeEstimate: '~4.4 MB',
       },
       {
@@ -543,10 +602,22 @@ export class UniversalEngine {
         label: 'Download TikTok Sound / Audio (MP3)',
         quality: '320 kbps MP3',
         format: 'MP3',
-        downloadUrl: `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(url)}&filename=tiktok_audio_${videoId}.mp3`,
+        downloadUrl: `/api/universal/stream?platform=tiktok&url=${encodeURIComponent(directAudioUrl || targetVideoUrl)}&filename=tiktok_audio_${videoId}.mp3`,
         sizeEstimate: '~7.4 MB',
       },
     ];
+
+    if (directThumbnail) {
+      options.push({
+        id: 'tt_thumb',
+        type: 'image',
+        label: 'Download Cover Photo (HD JPG)',
+        quality: 'Original HD',
+        format: 'JPG',
+        downloadUrl: directThumbnail,
+        sizeEstimate: '~350 KB',
+      });
+    }
 
     return {
       success: true,
@@ -554,12 +625,12 @@ export class UniversalEngine {
       platformName: 'TikTok',
       mediaId: videoId,
       originalUrl: url,
-      title: `TikTok Video by ${username}`,
+      title,
       author: {
         username,
         fullName: username.replace('@', ''),
       },
-      thumbnailUrl: '',
+      thumbnailUrl: directThumbnail,
       previewVideoUrl,
       options,
     };
@@ -688,9 +759,13 @@ export class UniversalEngine {
    */
   private static async queryYtdlpBridge(url: string): Promise<any> {
     try {
+      const fs = await import('fs');
+      const pythonPath = 'C:\\Users\\Vishal Hargude\\AppData\\Local\\Python\\bin\\python.exe';
+      if (!fs.existsSync(pythonPath)) {
+        return null;
+      }
       const { execFile } = await import('child_process');
       const path = await import('path');
-      const pythonPath = 'C:\\Users\\Vishal Hargude\\AppData\\Local\\Python\\bin\\python.exe';
       const bridgePath = path.join(process.cwd(), 'modules', 'platforms', 'ytdlpBridge.py');
 
       return await new Promise((resolve) => {

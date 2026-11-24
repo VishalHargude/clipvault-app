@@ -10,7 +10,7 @@ export function Footer() {
   const { t } = useI18n();
 
   return (
-    <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto pt-14 pb-10">
+    <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto pt-14 pb-36 sm:pb-40">
       <Container>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10 pb-12 border-b border-slate-200 dark:border-slate-800">
           {/* Col 1: Brand & Statement */}
